@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os"
 	"strconv"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 // public
@@ -42,16 +39,6 @@ var (
 		"2006-01-02 15:04:05",
 	}
 )
-
-var alphaVantageApiKey string
-
-func assignApiKey() error {
-	err := godotenv.Load();
-	if err == nil {
-		alphaVantageApiKey = os.Getenv("ALPHAVANTAGE_API_KEY")
-	}
-	return err
-}
 
 func (c *Client) buildRequestPath(params map[string]string) *url.URL {
 	// build our URL
