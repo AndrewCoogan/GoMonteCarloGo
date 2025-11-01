@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 type NumbersToSum struct {
@@ -20,9 +21,25 @@ const (
 )
 
 func main() {
-	router := gin.Default()
+	loadEnv()
+	s := establishConnection();
 
-	router.Use(cors.New(cors.Config{
+	log.Printf("Starting GMCG server on %s", DefaultAddr)
+	log.Fatal(s.ListenAndServe())
+}
+
+func loadEnv() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf(".env not loaded: %v", err)
+	} else {
+		//alphaVantageApiKey := os.Getenv("ALPHAVANTAGE_API_KEY")
+	}
+}
+
+func establishConnection() *http.Server {
+	engine := gin.Default()
+
+	engine.Use(cors.New(cors.Config{
         AllowOrigins:     []string{"http://localhost:3000"},
         AllowMethods:     []string{"GET", "POST", "OPTIONS"},
         AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
@@ -31,20 +48,19 @@ func main() {
         MaxAge:           12 * time.Hour,
     }))
 
-	router.GET("/api/ping", ping)
-	router.GET("/api/addByGet", addByGet)
-	router.POST("/api/addByPost", addByPost)
+	engine.GET("/api/ping", ping)
+	engine.GET("/api/addByGet", addByGet)
+	engine.POST("/api/addByPost", addByPost)
 
 	server := &http.Server{
 		Addr:           DefaultAddr,
-		Handler:        router,
+		Handler:        engine,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
-	
-	log.Printf("Starting GMCG server on %s", DefaultAddr)
-	log.Fatal(server.ListenAndServe())
+
+	return server;
 }
 
 func ping(c *gin.Context) {
