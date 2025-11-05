@@ -25,19 +25,18 @@ const (
 
 // private
 const (
-	apiKey     = "apikey"
-	dataType   = "datatype"
-	outputSize = "outputsize"
-	symbol     = "symbol"
-	function   = "function"
-	interval   = "interval"
+	// default query parameters
+	defaultOutputSize = "Compact"
+	defaultDataType   = "JSON"
+	defaultTimeout = time.Second * 30
 
-	defaultoutputSize = "compact"
-	defaultDataType   = "json"
-	query             = "query"
-
-	requestTimeout = time.Second * 30
+	// api request elements
+	query    = "query"
+	symbol   = "symbol"
+	function = "function"
+	interval = "interval"
 	
+	// meta data element relation
 	Information   = "Information"
 	Symbol        = "Symbol"
 	LastRefreshed = "Last Refreshed"
@@ -45,6 +44,7 @@ const (
 	OutputSize    = "OutputSize"
 	TimeZone      = "TimeZone"
 
+	// time series element relation
 	Open           = "Open"
 	High           = "High"
 	Low            = "Low"
@@ -67,7 +67,7 @@ type AlphaVantageClient struct {
 
 func GetClient(apiKey string) AlphaVantageClient {
 	return AlphaVantageClient{
-		ClientFactory(HostDefault, apiKey, requestTimeout),
+		ClientFactory(HostDefault, apiKey, defaultTimeout),
 	}
 }
 
@@ -84,7 +84,6 @@ func (avc AlphaVantageClient) StockTimeSeries(timeSeries TimeSeries, ticker stri
 	}
 
 	defer response.Body.Close()
-
 	return parseTimeSeriesRequestResult(response.Body, timeSeries.TimeSeriesKey())
 }
 
@@ -102,7 +101,6 @@ func (avc AlphaVantageClient) StockTimeSeriesIntraday(timeInterval TimeInterval,
 	}
 
 	defer response.Body.Close()
-	
 	return parseTimeSeriesRequestResult(response.Body, "")
 }
 
@@ -113,9 +111,9 @@ func (c *Client) buildRequestPath(params map[string]string) *url.URL {
 
 	// base parameters
 	query := endpoint.Query()
-	query.Set(apiKey, c.apiKey)
-	query.Set(dataType, defaultDataType)
-	query.Set(outputSize, defaultoutputSize)
+	query.Set("apikey", c.apiKey)
+	query.Set("datatype", defaultDataType)
+	query.Set("outputsize", defaultOutputSize)
 
 	// additional parameters
 	for key, value := range params {
@@ -141,6 +139,14 @@ type TimeSeriesMetaData struct {
 	TimeZone      null.String
 }
 
+var timeSeriesMetaDataKeys = map[string]string{
+	Information:   ". Information",
+	Symbol:        ". Symbol",
+	Interval:      ". Interval",
+	OutputSize:    ". Output Size",
+	TimeZone:      ". Time Zone",
+}
+
 type TimeSeriesData struct {
 	Timestamp      time.Time
     Open           null.Float
@@ -150,14 +156,6 @@ type TimeSeriesData struct {
 	AdjustedClose  null.Float
 	Volume         null.Float
 	DividendAmount null.Float
-}
-
-var timeSeriesMetaDataKeys = map[string]string{
-	Information:   ". Information",
-	Symbol:        ". Symbol",
-	Interval:      ". Interval",
-	OutputSize:    ". Output Size",
-	TimeZone:      ". Time Zone",
 }
 
 var timeSeriesDataResultKeys = map[string]string{
@@ -299,7 +297,7 @@ func parseTimeSeries(raw map[string]json.RawMessage, key string, location *time.
     return timeSeries, nil
 }
 
-func getLookupKey(expectedKeys map[string]string, values map[string]string) map[string]string {
+func getLookupKey(expectedKeys, values map[string]string) map[string]string {
 	res := make(map[string]string)
 	responseValueHeaders := slices.Collect(maps.Keys(values))
 	for key, value := range expectedKeys {

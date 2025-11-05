@@ -3,6 +3,7 @@ package data
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 func FilterMultiple[T any](elements []T, predicate func(T) bool) (results []T) {
@@ -23,7 +24,7 @@ func FilterFirst[T any](elements []T, predicate func(T) bool) (result T) {
 	return
 }
 
-func FilterSingle[T any](elements []T, predicate func(T) bool) (result T, err error) {
+func FilterSingle[T any](elements []T, predicate func(T) bool) (T, error) {
 	res := FilterMultiple(elements, predicate)
 
 	if len(res) != 1 {
@@ -50,5 +51,13 @@ func GetFields[T any](value T) (results []string, err error) {
 		field := typ.Field(i).Name
 		results = append(results, field)
 	}
-	return results, nil
+	return
+}
+
+func AreEqual(s, c string) bool {
+    return strings.EqualFold(s, c)
+}
+
+func AreNotEqual(s, c string) bool {
+    return !AreEqual(s, c)
 }
