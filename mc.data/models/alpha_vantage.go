@@ -7,11 +7,11 @@ import (
 )
 
 type TimeSeriesResult struct {
-	MetaData *TimeSeriesMetaData
+	Metadata *TimeSeriesMetadata
 	TimeSeries []*TimeSeriesData
 }
 
-type TimeSeriesMetaData struct {
+type TimeSeriesMetadata struct {
 	Information   null.String
 	Symbol        null.String
 	LastRefreshed time.Time 

@@ -61,17 +61,17 @@ func Test_AlphaVantage_StockIntradayTimeSeries(t *testing.T) {
 
 	// meta data
 	metaInfoEx := "Intraday (60min) open, high, low, close prices and volume"
-	assertAreEqual(t, "information", metaInfoEx, res.MetaData.Information.Ptr())
-	assertAreEqual(t, "symbol", ticker, res.MetaData.Symbol.Ptr())
+	assertAreEqual(t, "information", metaInfoEx, res.Metadata.Information.Ptr())
+	assertAreEqual(t, "symbol", ticker, res.Metadata.Symbol.Ptr())
 
 	targetDate := time.Date(2025, time.October, 31, 19, 0, 0, 0, location)
-	if targetDate.Compare(res.MetaData.LastRefreshed) == 1 { // time is before the actual
-		t.Fatalf("error parsing meta data last refreshed date, %s", res.MetaData.LastRefreshed)
+	if targetDate.Compare(res.Metadata.LastRefreshed) == 1 { // time is before the actual
+		t.Fatalf("error parsing meta data last refreshed date, %s", res.Metadata.LastRefreshed)
 	}
 
-	assertAreEqual(t, "interval", "60min", res.MetaData.Interval.Ptr())
-	assertAreEqual(t, "output size", defaultOutputSize, res.MetaData.OutputSize.Ptr())
-	assertAreEqual(t, "time zone", "US/Eastern", res.MetaData.TimeZone.Ptr())
+	assertAreEqual(t, "interval", "60min", res.Metadata.Interval.Ptr())
+	assertAreEqual(t, "output size", defaultOutputSize, res.Metadata.OutputSize.Ptr())
+	assertAreEqual(t, "time zone", "US/Eastern", res.Metadata.TimeZone.Ptr())
 
 	// time series element tieout
 	f := func(e *m.TimeSeriesData) bool { return targetDate.Compare(e.Timestamp) == 0 }
@@ -117,17 +117,17 @@ func Test_AlphaVantage_StockTimeSeries(t *testing.T) {
 
 	// meta data
 	metaInfoEx := "Weekly Adjusted Prices and Volumes" 
-	assertAreEqual(t, "information", metaInfoEx, res.MetaData.Information.Ptr())
-	assertAreEqual(t, "symbol", ticker, res.MetaData.Symbol.Ptr())
+	assertAreEqual(t, "information", metaInfoEx, res.Metadata.Information.Ptr())
+	assertAreEqual(t, "symbol", ticker, res.Metadata.Symbol.Ptr())
 
 	targetDate := time.Date(2025, time.October, 31, 0, 0, 0, 0, location)
-	if targetDate.Compare(res.MetaData.LastRefreshed) == 1 { // time is before the actual
-		t.Fatalf("error parsing meta data last refreshed date, %s", res.MetaData.LastRefreshed)
+	if targetDate.Compare(res.Metadata.LastRefreshed) == 1 { // time is before the actual
+		t.Fatalf("error parsing meta data last refreshed date, %s", res.Metadata.LastRefreshed)
 	}
 
-	assertNillability(t, "interval", true, res.MetaData.Interval.Ptr())
-	assertNillability(t, "output size", true, res.MetaData.OutputSize.Ptr())
-	assertAreEqual(t, "time zone", "US/Eastern", res.MetaData.TimeZone.Ptr())
+	assertNillability(t, "interval", true, res.Metadata.Interval.Ptr())
+	assertNillability(t, "output size", true, res.Metadata.OutputSize.Ptr())
+	assertAreEqual(t, "time zone", "US/Eastern", res.Metadata.TimeZone.Ptr())
 
 	// time series element tieout
 	f := func(e *m.TimeSeriesData) bool { return targetDate.Compare(e.Timestamp) == 0 }

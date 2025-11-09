@@ -20,6 +20,11 @@ To run test(s):
     to run verbosely: go test -v
     to run single test: go test -run *test func*
 
+If there are updates in other packages, those can be force updated by running:
+    cd mc.service
+    go get -u mc.data *to directly update the dependency*
+    go mod tidy *or whever the consuming model is*
+
 To start postgresql:
     Install via cmd: brew install postgresql@16
     To run via cmd: brew services start postgresql@16

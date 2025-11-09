@@ -126,7 +126,7 @@ func (c *Client) buildRequestPath(params map[string]string) *url.URL {
 	return endpoint
 }
 
-var timeSeriesMetaDataKeys = map[string]string{
+var timeSeriesMetadataKeys = map[string]string{
 	Information:   ". Information",
 	Symbol:        ". Symbol",
 	Interval:      ". Interval",
@@ -179,19 +179,19 @@ func parseTimeSeriesRequestResult(reader io.Reader, timeSeriesKey string) (*m.Ti
 	}
 
 	return &m.TimeSeriesResult{
-		MetaData:   metaData,
+		Metadata:   metaData,
 		TimeSeries: ts,
 		}, nil
 }
 
-func parseMetaData(raw map[string]json.RawMessage) (*m.TimeSeriesMetaData, error) {
-	var metaDataElements map[string]string
-	if err := json.Unmarshal(raw["Meta Data"], &metaDataElements); err != nil {
+func parseMetaData(raw map[string]json.RawMessage) (*m.TimeSeriesMetadata, error) {
+	var metadataElements map[string]string
+	if err := json.Unmarshal(raw["Meta Data"], &metadataElements); err != nil {
 		return nil, fmt.Errorf("error unmarshaling meta data: %w", err)
 	}
 
-	res := m.TimeSeriesMetaData{}
-	lookup := getLookupKey(timeSeriesMetaDataKeys, metaDataElements)
+	res := m.TimeSeriesMetadata{}
+	lookup := getLookupKey(timeSeriesMetadataKeys, metadataElements)
 
 	// populate simple string fields via reflection using the lookup
 	val := reflect.ValueOf(&res).Elem()
@@ -204,18 +204,18 @@ func parseMetaData(raw map[string]json.RawMessage) (*m.TimeSeriesMetaData, error
 			return nil, fmt.Errorf("field %s cannot be set", metaDataValue)
 		}
 		
-		nullVal := null.NewString(metaDataElements[metaDataKey], true)
+		nullVal := null.NewString(metadataElements[metaDataKey], true)
 		field.Set(reflect.ValueOf(nullVal))
 	}
 
 	// parse time.Time type with a little more care
 	f := func(s string) bool { return strings.HasSuffix(s, ". Last Refreshed") }
-	lastRefreshedKey, err := u.FilterSingle(slices.Collect(maps.Keys(metaDataElements)), f)
+	lastRefreshedKey, err := u.FilterSingle(slices.Collect(maps.Keys(metadataElements)), f)
 	if err != nil {
 		return nil, fmt.Errorf("error extracting last refreshed date")
 	}
 
-	lastRefreshed, err := parseDateAsUtc(metaDataElements[lastRefreshedKey])
+	lastRefreshed, err := parseDateAsUtc(metadataElements[lastRefreshedKey])
 
 	if err != nil {
 		return nil, fmt.Errorf("error parsing last refreshed date")
