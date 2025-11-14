@@ -8,11 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	time_series_data     = "time_series_data"
-	time_series_metadata = "time_series_metadata"
-)
-
 type Postgres struct {
 	db *pgxpool.Pool
 }

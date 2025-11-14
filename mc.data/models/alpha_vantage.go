@@ -15,11 +15,13 @@ type TimeSeriesIntradayResult struct {
 }
 
 type TimeSeriesMetadata struct {
+	Id            int32 `db:"id"`
 	Symbol        string `db:"symbol"`
 	LastRefreshed time.Time `db:"last_refreshed"`
 }
 
 type TimeSeriesData struct {
+	SourceId       int32 `db:"source_id"`
 	Timestamp      time.Time `db:"timestamp"`
 	OHLCV          TimeSeriesOHLCV
 	AdjustedClose  float64 `db:"adjusted_close"`
@@ -27,6 +29,7 @@ type TimeSeriesData struct {
 }
 
 type TimeSeriesIntradayData struct {
+	SourceId  int32 `db:"source_id"`
 	Timestamp time.Time `db:"timestamp"`
 	OHLCV     TimeSeriesOHLCV
 }

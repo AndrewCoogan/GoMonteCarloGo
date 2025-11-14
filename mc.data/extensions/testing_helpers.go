@@ -3,13 +3,10 @@ package extensions
 import "testing"
 
 
-func AssertAreEqual[T comparable](t *testing.T, name string, expected T, actual *T) {
+func AssertAreEqual[T comparable](t *testing.T, name string, expected T, actual T) {
     t.Helper()
-    if actual == nil {
-        t.Fatalf("error parsing %s, attributed value was nil", name)
-    }
-    if expected != *actual {
-        t.Fatalf("value mismatch for %s, expected %v, got %v", name, expected, *actual)
+    if expected != actual {
+        t.Fatalf("value mismatch for %s, expected %v, got %v", name, expected, actual)
     }
 }
 
