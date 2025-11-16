@@ -90,20 +90,20 @@ func Test_AlphaVantage_StockIntradayTimeSeries(t *testing.T) {
 		t.Fatalf("error filtering single time series element, resulted in nil")
 	}
 
-	if s.OHLCV.Open == 0 {
-		t.Fatalf("open price mismatch, expected non zero, got %v", s.OHLCV.Open)
+	if s.Open == 0 {
+		t.Fatalf("open price mismatch, expected non zero, got %v", s.Open)
 	}
-	if s.OHLCV.High == 0 {
-		t.Fatalf("high price mismatch, expected non zero, got %v", s.OHLCV.High)
+	if s.High == 0 {
+		t.Fatalf("high price mismatch, expected non zero, got %v", s.High)
 	}
-	if s.OHLCV.Low == 0 {
-		t.Fatalf("low price mismatch, expected non zero, got %v", s.OHLCV.Low)
+	if s.Low == 0 {
+		t.Fatalf("low price mismatch, expected non zero, got %v", s.Low)
 	}
-	if s.OHLCV.Close == 0 {
-		t.Fatalf("close price mismatch, expected non zero, got %v", s.OHLCV.Close)
+	if s.Close == 0 {
+		t.Fatalf("close price mismatch, expected non zero, got %v", s.Close)
 	}
-	if s.OHLCV.Volume == 0 {
-		t.Fatalf("volume mismatch, expected non zero, got %v", s.OHLCV.Volume)
+	if s.Volume == 0 {
+		t.Fatalf("volume mismatch, expected non zero, got %v", s.Volume)
 	}
 }
 
@@ -150,7 +150,7 @@ func Test_AlphaVantage_StockTimeSeries(t *testing.T) {
 	t.Logf("JSON: %s", jsonData)
 
 	expected := m.TimeSeriesData{
-		OHLCV: m.TimeSeriesOHLCV{
+		TimeSeriesOHLCV: m.TimeSeriesOHLCV{
 			Open: 264.88,
 			High: 277.320,
 			Low: 264.6501,
@@ -161,24 +161,24 @@ func Test_AlphaVantage_StockTimeSeries(t *testing.T) {
 		DividendAmount: 0,
 	}
 
-	if s.OHLCV.Open != expected.OHLCV.Open {
-		t.Fatalf("open price mismatch, expected %v, got %v", expected.OHLCV.Open, s.OHLCV.Open)
+	if s.Open != expected.Open {
+		t.Fatalf("open price mismatch, expected %v, got %v", expected.Open, s.Open)
 	}
 
-	if s.OHLCV.High != expected.OHLCV.High {
-		t.Fatalf("high price mismatch, expected %v, got %v", expected.OHLCV.High, s.OHLCV.High)
+	if s.High != expected.High {
+		t.Fatalf("high price mismatch, expected %v, got %v", expected.High, s.High)
 	}
 
-	if s.OHLCV.Low != expected.OHLCV.Low {
-		t.Fatalf("low price mismatch, expected %v, got %v", expected.OHLCV.Low, s.OHLCV.Low)
+	if s.Low != expected.Low {
+		t.Fatalf("low price mismatch, expected %v, got %v", expected.Low, s.Low)
 	}
 
-	if s.OHLCV.Close != expected.OHLCV.Close {
-		t.Fatalf("close price mismatch, expected %v, got %v", expected.OHLCV.Close, s.OHLCV.Close)
+	if s.Close != expected.Close {
+		t.Fatalf("close price mismatch, expected %v, got %v", expected.Close, s.Close)
 	}
 
-	if s.OHLCV.Volume != expected.OHLCV.Volume {
-		t.Fatalf("volume mismatch, expected %v, got %v", expected.OHLCV.Volume, s.OHLCV.Volume)
+	if s.Volume != expected.Volume {
+		t.Fatalf("volume mismatch, expected %v, got %v", expected.Volume, s.Volume)
 	}
 
 	if s.AdjustedClose != expected.AdjustedClose {

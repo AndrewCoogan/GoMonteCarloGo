@@ -18,6 +18,12 @@ import (
 	av "mc.service/api/alpha_vantage"
 )
 
+type ServiceContext struct {
+	Context            context.Context
+	PostgresConnection *r.Postgres
+	AlphaVantageClient *av.AlphaVantageClient
+}
+
 type NumbersToSum struct {
 	Number1 int `json:"number1"`
 	Number2 int `json:"number2"`
@@ -33,13 +39,16 @@ var (
 )
 
 func main() {
-	startupCtx, cancel := context.WithTimeout(context.Background(), 30 * time.Second)
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 30 * time.Second)
     ctx, stop := signal.NotifyContext(startupCtx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	defer cancel() // does order matter? 
+	defer startupCancel() // does order matter? 
 
     
-    loadEnv()
+	if err := godotenv.Load(); err != nil {
+		log.Printf(".env not loaded: %v", err)
+	}
+
     avClient = av.GetClient(os.Getenv("ALPHAVANTAGE_API_KEY"))    
     postgresConnection, err := r.GetPostgresConnection(ctx, os.Getenv("DATABASE_URL"))
     if err != nil {
@@ -59,19 +68,14 @@ func main() {
     <-ctx.Done() // golang channel, this will (in theory) pause the code until the context is closed (ie, ctrl+C)
     log.Println("Received shutdown signal, shutting down gracefully...")
     
-    shutdownCtx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
-    defer cancel()
+    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10 * time.Second)
+    defer shutdownCancel()
     
     if err := s.Shutdown(shutdownCtx); err != nil {
         log.Printf("Server shutdown error: %v", err)
     }
     
     log.Println("Server stopped successfully")
-}
-func loadEnv() {
-	if err := godotenv.Load(); err != nil {
-		log.Printf(".env not loaded: %v", err)
-	}
 }
 
 func establishApiEndpoints() *http.Server {

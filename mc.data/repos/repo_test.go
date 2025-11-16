@@ -32,6 +32,14 @@ func Test_TimeSeriesMetaDataRepo_CanInsertAndGet(t *testing.T) {
 
 	ctx := context.Background()
 	pg := getConnection(t, ctx)
+
+	exists, err := pg.GetMetaDataBySymbol(ctx, symbol)
+	if err != nil {
+		t.Fatalf("error determining if meta symbol exists for %s (should be false): %s", symbol, err)
+	}
+	if exists != nil {
+		t.Fatalf("symbol %s has not been inserted yet, so exists should be false", symbol)
+	}
 	
 	if err := pg.InsertNewMetaData(ctx, &testMetaData); err != nil {
 		t.Fatalf("error inserting new meta data: %s", err)

@@ -3,12 +3,13 @@ package repos
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
-	"mc.data/models"
+	m "mc.data/models"
 )
 
-func (pg *Postgres) GetMetaDataBySymbol(ctx context.Context, symbol string) (*models.TimeSeriesMetadata, error) {
+func (pg *Postgres) GetMetaDataBySymbol(ctx context.Context, symbol string) (*m.TimeSeriesMetadata, error) {
 	query := `
 		SELECT 
 			id, 
@@ -21,14 +22,19 @@ func (pg *Postgres) GetMetaDataBySymbol(ctx context.Context, symbol string) (*mo
 		"symbol": symbol,
 	}
 
-	res, err := QuerySingle[models.TimeSeriesMetadata](ctx, pg, query, args)
+	res, err := Query[m.TimeSeriesMetadata](ctx, pg, query, args)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query metadata by symbol (%s): %w", symbol, err)
 	}
-	return res, nil
+
+	if len(res) == 0 {
+		return nil, nil
+	}
+
+	return res[0], nil
 }
 
-func (pg *Postgres) InsertNewMetaData(ctx context.Context, metadata *models.TimeSeriesMetadata) error {
+func (pg *Postgres) InsertNewMetaData(ctx context.Context, metadata *m.TimeSeriesMetadata) error {
 	query := `
 		INSERT INTO av_time_series_metadata 
 			(symbol, last_refreshed) 
@@ -46,4 +52,19 @@ func (pg *Postgres) InsertNewMetaData(ctx context.Context, metadata *models.Time
 	}
 	
 	return nil
+}
+
+func (pg *Postgres) UpdateLastRefreshedDate(ctx context.Context, symbol string, lastRefreshed time.Time) error {
+	query := `
+		UPDATE av_time_series_metadata
+		SET last_refreshed = @last_refreshed
+		WHERE symbol = @symbol`
+	
+	args := pgx.NamedArgs{
+		"last_refreshed": lastRefreshed,
+		"symbol": symbol,
+	}
+
+	_, err := pg.Execute(ctx, query, args)
+	return err
 }

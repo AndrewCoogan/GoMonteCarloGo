@@ -268,10 +268,10 @@ func parseTimeSeriesDataResult(raw map[string]json.RawMessage, key string, locat
 		}
 
 		timeSeries = append(timeSeries, &m.TimeSeriesData{
-			Timestamp:      timestamp,
-			OHLCV:          ohlcv,
-			AdjustedClose:  parseFloat(timeSeriesValue[adjustedCloseKey]),
-			DividendAmount: parseFloat(timeSeriesValue[dividendAmountKey]),
+			Timestamp:       timestamp,
+			TimeSeriesOHLCV: ohlcv,
+			AdjustedClose:   parseFloat(timeSeriesValue[adjustedCloseKey]),
+			DividendAmount:  parseFloat(timeSeriesValue[dividendAmountKey]),
 		})
 	}
 
@@ -311,8 +311,8 @@ func parseTimeSeriesIntradayDataResult(raw map[string]json.RawMessage, key strin
 		}
 
 		timeSeries = append(timeSeries, &m.TimeSeriesIntradayData{
-			Timestamp: timestamp,
-			OHLCV:     ohlcv,
+			Timestamp:       timestamp,
+			TimeSeriesOHLCV: ohlcv,
 		})
 	}
 
