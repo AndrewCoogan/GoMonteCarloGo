@@ -44,7 +44,7 @@ func (sc *ServiceContext) SyncSymbolTimeSeriesData(symbol string) (time.Time, er
 		return time.Time{}, err
 	}
 
-	f := func(t *m.TimeSeriesData) bool { return mrd != nil || mrd.After(t.Timestamp) }
+	f := func(t *m.TimeSeriesData) bool { return mrd == nil || mrd.After(t.Timestamp) }
 	toInsert := ex.FilterMultiplePtr(tsr.TimeSeries, f)
 
     tx, err := sc.PostgresConnection.GetTransaction(sc.Context)
