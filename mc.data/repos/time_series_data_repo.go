@@ -3,6 +3,7 @@ package repos
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,8 +45,13 @@ func (pg *Postgres) InsertTimeSeriesData(ctx context.Context, data []*m.TimeSeri
         "close", "volume", "adjusted_close", "dividend_amount",
     }
 
-	// TODO: make sure these get converted to UTC, might be worth while to add UTC to the postgres column name?
-    entries := make([][]any, len(data))
+	// TODO: might need to multiply by -1
+	slices.SortFunc(data, func(i, j *m.TimeSeriesData) int {
+		return i.Timestamp.Compare(j.Timestamp)
+	})
+
+	// all time stamps here are date only, so no need to worry about UTC
+	entries := make([][]any, len(data))
     for i, ent := range data {
         sourceId := ent.SourceId
         if id != nil {
@@ -56,8 +62,6 @@ func (pg *Postgres) InsertTimeSeriesData(ctx context.Context, data []*m.TimeSeri
             ent.Close, ent.Volume, ent.AdjustedClose, ent.DividendAmount,
         }
     }
-
-
 
 	if tx == nil {
 		return pg.db.CopyFrom(ctx, pgx.Identifier{"av_time_series_data"}, columns, pgx.CopyFromRows(entries))
