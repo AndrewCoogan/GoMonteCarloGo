@@ -45,7 +45,7 @@ func (pg *Postgres) InsertTimeSeriesData(ctx context.Context, data []*m.TimeSeri
         "close", "volume", "adjusted_close", "dividend_amount",
     }
 
-	// TODO: might need to multiply by -1
+	// TODO: might need to multiply by -1 for sort.
 	slices.SortFunc(data, func(i, j *m.TimeSeriesData) int {
 		return i.Timestamp.Compare(j.Timestamp)
 	})
@@ -88,4 +88,40 @@ func (pg *Postgres) GetMostRecentTimestampForSymbol(ctx context.Context, symbol 
 	}
 
 	return ts, nil
+}
+
+func (pg *Postgres) GetTimeSeriesReturns(ctx context.Context, sourceIds []int32, maxLookback time.Duration) ([]*m.TimeSeriesReturn, error) {
+	query := 
+	`
+		WITH price_data AS (
+		SELECT 
+			t.source_id,
+			t.timestamp,
+			t.adjusted_close,
+			LAG(t.adjusted_close) OVER (PARTITION BY t.source_id ORDER BY t.timestamp) AS prev_close
+		FROM av_time_series_data t
+		INNER JOIN valid_timestamps v ON t.timestamp = v.timestamp
+		WHERE t.source_id = ANY(@source_ids)
+			AND t.timestamp >= @max_lookback
+		)
+		SELECT 
+			source_id,
+			timestamp,
+			LN(adjusted_close / prev_close) AS log_return
+		FROM price_data
+		WHERE prev_close IS NOT NULL
+		ORDER BY source_id, timestamp DESC
+	`
+
+	args := pgx.NamedArgs{
+		"source_ids": sourceIds,
+		"max_lookback" : time.Now().Add(-maxLookback),
+	}
+
+	res, err := Query[m.TimeSeriesReturn](ctx, pg, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query data by source id (%s): %w", sourceIds, err)
+	}
+
+	return res, nil
 }
