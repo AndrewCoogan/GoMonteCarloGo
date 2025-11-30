@@ -102,6 +102,7 @@ func AreNotEqual(s, c string) bool {
 	return !AreEqual(s, c)
 }
 
+// AreAllEqual checks if a slice is complised of the same element by value
 func AreAllEqual[T comparable](values []T) bool {
 	for i := 1; i < len(values); i++ {
 		if values[i] != values[0] {

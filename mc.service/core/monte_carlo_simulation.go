@@ -3,16 +3,21 @@ package core
 import (
 	"fmt"
 	"maps"
+	"math"
+	"math/rand/v2"
 	"slices"
 	"time"
 
-	//"math/rand/v2"
-
-	//"gonum.org/v1/gonum/mat"
+	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
-	//"gonum.org/v1/gonum/stat/distuv"
+	"gonum.org/v1/gonum/stat/distuv"
 
 	ex "mc.data/extensions"
+)
+
+const (
+	Workers   = 8
+	BatchSize = 10_000
 )
 
 type SimulationAllocation struct {
@@ -22,35 +27,195 @@ type SimulationAllocation struct {
 }
 
 type SimulationRequest struct {
-	Allocations []SimulationAllocation `json:"allocations"`
-	Iterations  int                    `json:"iterations"`
-	MaxLookback time.Duration
-	// other stuff?
+	Allocations        []SimulationAllocation `json:"allocations"`
+	Iterations         int                    `json:"iterations"`
+	MaxLookback        time.Duration          `json:"maxlookback"`        // what is this going to look like in api req?
+	SimulationDuration time.Duration          `json:"simulationduration"` // ^^
+	Seed               int64                  `json:"seed"`               // ^^
 }
 
 type SeriesReturns struct {
 	SourceID   int32
 	Ticker     string
+	Weight     float64
 	Returns    []float64
 	Dates      []time.Time
 	MeanReturn float64
 	StdDev     float64
 }
 
+type SimulationResult struct {
+	FinalValue       float64
+	TotalReturn      float64
+	AnnualizedReturn float64
+	PathValues       []float64
+}
+
+type job struct {
+	index, start, end int
+}
+
+func (sr SimulationRequest) Validate() error {
+	// make sure the total weight is 100%
+	weightSum := 0.0
+	for _, w := range sr.Allocations {
+		weightSum += w.Weight
+	}
+	if math.Abs(weightSum-1.0) > 1e-6 {
+		return fmt.Errorf("weights must sum to 1.0, got %.6f", weightSum)
+	}
+
+	// make sure assets allocated to are unique
+	v := make(map[int32]bool, len(sr.Allocations))
+	for _, a := range sr.Allocations {
+		v[a.Id] = true
+	}
+
+	if len(sr.Allocations) != len(slices.Collect(maps.Keys(v))) {
+		return fmt.Errorf("did not recieve a unique asset list")
+	}
+
+	// anything else we want to validate before kicking off a simulation?
+
+	return nil
+}
+
 func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request SimulationRequest) error {
-	res, err := sc.getSeriesReturns(request)
+	seriesReturns, err := sc.getSeriesReturns(request)
 
 	if err != nil {
 		return err
 	}
 
+	cov := GetCovarianceMatrix(seriesReturns)
+
+	returns := make([][]float64, len(seriesReturns))
+	for i, ret := range seriesReturns {
+		returns[i] = ret.Returns
+	}
+
+	meanReturns := make([]float64, len(seriesReturns))
+	weights := make([]float64, len(seriesReturns))
+	for i, ticker := range seriesReturns {
+		meanReturns[i] = ticker.MeanReturn
+		weights[i] = ticker.Weight
+	}
+
+	var chol mat.Cholesky
+	if ok := chol.Factorize(cov); !ok {
+		return fmt.Errorf("covariance matrix is not positive definite")
+	}
+
+	var L mat.TriDense
+	chol.LTo(&L)
+
+	// make rng with seed
+	var sn int64
+	if request.Seed != 0 {
+		sn = request.Seed
+	} else {
+		sn = time.Now().UnixMicro()
+	}
+
+	nJobs := int(math.Ceil(float64(request.Iterations) / BatchSize))
+	dists := make([]distuv.Normal, nJobs)
+	for i := range nJobs {
+		dists[i] = distuv.Normal{
+			Mu:    0,
+			Sigma: 1,
+			Src:   rand.NewPCG(uint64(sn+int64(i)), 0),
+		}
+	}
+
+	jobs := make(chan job, nJobs)
+	done := make(chan bool, Workers)
+
+	numPeriods := int(math.Ceil(request.SimulationDuration.Hours() / (24 * 7)))
+
+	res := make([]SimulationResult, request.Iterations)
+
+	worker := func() {
+		for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
+			for sim := j.start; sim < j.end; sim++ {
+				portfolioValue := 100.0
+				pathValues := make([]float64, numPeriods+1)
+				pathValues[0] = portfolioValue
+
+				for period := range numPeriods {
+					correlatedReturns := generateCorrelatedReturns(&L, meanReturns, &dists[j.index])
+					portfolioReturn := dotProduct(weights, correlatedReturns)
+					portfolioValue *= math.Exp(portfolioReturn)
+					pathValues[period+1] = portfolioValue
+				}
+
+				totalReturn := portfolioValue - 1.0
+				annualizedReturn := math.Pow(portfolioValue, 52.0/float64(numPeriods)) - 1.0
+
+				res[sim] = SimulationResult{
+					FinalValue:       portfolioValue,
+					TotalReturn:      totalReturn,
+					AnnualizedReturn: annualizedReturn,
+					PathValues:       pathValues,
+				}
+			}
+		}
+		done <- true
+	}
+
+	// starts the workers
+	for range Workers {
+		go worker()
+	}
+
+	// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
+	for i := range nJobs {
+		start := i * BatchSize
+		end := int(math.Min(float64(start+BatchSize), float64(request.Iterations)))
+		if start != end {
+			jobs <- job{index: i, start: start, end: end}
+		}
+	}
+	close(jobs) // close the job channel, there isnt anything else being added to it
+
+	// this will loop until all of the jobs are complete
+	for range Workers {
+		<-done
+	}
+
+	//return results, nil
+
 	return nil
 }
 
+func generateCorrelatedReturns(L *mat.TriDense, means []float64, normalDist *distuv.Normal) []float64 {
+	n := len(means)
+
+	z := make([]float64, n)
+	for i := range n {
+		z[i] = normalDist.Rand()
+	}
+
+	// transform to correlated returns: y = L * z + mean
+	zVec := mat.NewVecDense(n, z)
+	yVec := mat.NewVecDense(n, nil)
+	yVec.MulVec(L, zVec)
+
+	// add the asset mean returns
+	correlatedReturns := make([]float64, n)
+	for i := range n {
+		correlatedReturns[i] = yVec.AtVec(i) + means[i]
+	}
+
+	return correlatedReturns
+}
+
 func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []SeriesReturns, err error) {
-	tickerLookup := make(map[int32]string, len(request.Allocations))
+	tickerLookup := make(map[int32]SimulationAllocation, len(request.Allocations))
 	for _, allocation := range request.Allocations {
-		tickerLookup[allocation.Id] = allocation.Ticker
+		tickerLookup[allocation.Id] = SimulationAllocation{
+			Ticker: allocation.Ticker,
+			Weight: allocation.Weight,
+		}
 	}
 
 	returns, err := sc.PostgresConnection.GetTimeSeriesReturns(sc.Context, slices.Collect(maps.Keys(tickerLookup)), request.MaxLookback)
@@ -63,7 +228,8 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 		if agg[ret.Id] == nil {
 			agg[ret.Id] = &SeriesReturns{
 				SourceID: ret.Id,
-				Ticker:   tickerLookup[ret.Id],
+				Ticker:   tickerLookup[ret.Id].Ticker,
+				Weight:   tickerLookup[ret.Id].Weight,
 				Returns:  []float64{},
 				Dates:    []time.Time{},
 			}
@@ -77,7 +243,7 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 		res = append(res, *tickerAgg)
 	}
 
-	// sorts on source id for consistency, maybe sort on weight? could also arrange that in front end.
+	// sorts on source id for consistency, useful for testing
 	slices.SortFunc(res, func(i, j SeriesReturns) int {
 		return int(i.SourceID - j.SourceID)
 	})
@@ -121,8 +287,7 @@ func verifyDataIntegrity(data []SeriesReturns) error {
 }
 
 func getTimeRange(data SeriesReturns) (first, last time.Time, length int) {
-	maxUnixSeconds := int64(1<<63 - 1 - 62135596801)
-	first = time.Unix(maxUnixSeconds, 999999999)
+	first = time.Date(3000, time.December, 31, 0, 0, 0, 0, time.UTC)
 	for _, v := range data.Dates {
 		if v.Before(first) {
 			first = v

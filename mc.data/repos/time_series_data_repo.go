@@ -100,7 +100,6 @@ func (pg *Postgres) GetTimeSeriesReturns(ctx context.Context, sourceIds []int32,
 			t.adjusted_close,
 			LAG(t.adjusted_close) OVER (PARTITION BY t.source_id ORDER BY t.timestamp) AS prev_close
 		FROM av_time_series_data t
-		INNER JOIN valid_timestamps v ON t.timestamp = v.timestamp
 		WHERE t.source_id = ANY(@source_ids)
 			AND t.timestamp >= @max_lookback
 		)
