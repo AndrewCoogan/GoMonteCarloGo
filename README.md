@@ -29,3 +29,6 @@ To start postgresql:
     Install via cmd: brew install postgresql@16
     To run via cmd: brew services start postgresql@16
     To stop via cmd: brew services stop postgresql@16
+
+Useful commands:
+    go fmt *will format files to go standards*

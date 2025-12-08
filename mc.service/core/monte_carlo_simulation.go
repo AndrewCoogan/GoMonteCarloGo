@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"math"
-	"math/rand/v2"
 	"slices"
 	"time"
 
@@ -81,108 +80,80 @@ func (sr SimulationRequest) Validate() error {
 }
 
 func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request SimulationRequest) error {
-	seriesReturns, err := sc.getSeriesReturns(request)
+	/*
+		seriesReturns, err := sc.getSeriesReturns(request)
 
-	if err != nil {
-		return err
-	}
-
-	cov := GetCovarianceMatrix(seriesReturns)
-
-	returns := make([][]float64, len(seriesReturns))
-	for i, ret := range seriesReturns {
-		returns[i] = ret.Returns
-	}
-
-	meanReturns := make([]float64, len(seriesReturns))
-	weights := make([]float64, len(seriesReturns))
-	for i, ticker := range seriesReturns {
-		meanReturns[i] = ticker.MeanReturn
-		weights[i] = ticker.Weight
-	}
-
-	var chol mat.Cholesky
-	if ok := chol.Factorize(cov); !ok {
-		return fmt.Errorf("covariance matrix is not positive definite")
-	}
-
-	var L mat.TriDense
-	chol.LTo(&L)
-
-	// make rng with seed
-	var sn int64
-	if request.Seed != 0 {
-		sn = request.Seed
-	} else {
-		sn = time.Now().UnixMicro()
-	}
-
-	nJobs := int(math.Ceil(float64(request.Iterations) / BatchSize))
-	dists := make([]distuv.Normal, nJobs)
-	for i := range nJobs {
-		dists[i] = distuv.Normal{
-			Mu:    0,
-			Sigma: 1,
-			Src:   rand.NewPCG(uint64(sn+int64(i)), 0),
+		if err != nil {
+			return err
 		}
-	}
 
-	jobs := make(chan job, nJobs)
-	done := make(chan bool, Workers)
+		returns := make([][]float64, len(seriesReturns))
+		for i, r := range seriesReturns {
+			j, wr := range r. {
 
-	numPeriods := int(math.Ceil(request.SimulationDuration.Hours() / (24 * 7)))
-
-	res := make([]SimulationResult, request.Iterations)
-
-	worker := func() {
-		for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
-			for sim := j.start; sim < j.end; sim++ {
-				portfolioValue := 100.0
-				pathValues := make([]float64, numPeriods+1)
-				pathValues[0] = portfolioValue
-
-				for period := range numPeriods {
-					correlatedReturns := generateCorrelatedReturns(&L, meanReturns, &dists[j.index])
-					portfolioReturn := dotProduct(weights, correlatedReturns)
-					portfolioValue *= math.Exp(portfolioReturn)
-					pathValues[period+1] = portfolioValue
-				}
-
-				totalReturn := portfolioValue - 1.0
-				annualizedReturn := math.Pow(portfolioValue, 52.0/float64(numPeriods)) - 1.0
-
-				res[sim] = SimulationResult{
-					FinalValue:       portfolioValue,
-					TotalReturn:      totalReturn,
-					AnnualizedReturn: annualizedReturn,
-					PathValues:       pathValues,
-				}
 			}
 		}
-		done <- true
-	}
 
-	// starts the workers
-	for range Workers {
-		go worker()
-	}
+		sr := GetStatisticalResources()
 
-	// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
-	for i := range nJobs {
-		start := i * BatchSize
-		end := int(math.Min(float64(start+BatchSize), float64(request.Iterations)))
-		if start != end {
-			jobs <- job{index: i, start: start, end: end}
+
+		jobs := make(chan job, nJobs)
+		done := make(chan bool, Workers)
+
+		numPeriods := int(math.Ceil(request.SimulationDuration.Hours() / (24 * 7)))
+
+		res := make([]SimulationResult, request.Iterations)
+
+		worker := func() {
+			for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
+				for sim := j.start; sim < j.end; sim++ {
+					portfolioValue := 100.0
+					pathValues := make([]float64, numPeriods+1)
+					pathValues[0] = portfolioValue
+
+					for period := range numPeriods {
+						correlatedReturns := generateCorrelatedReturns(&L, meanReturns, &dists[j.index])
+						portfolioReturn, _ := DotProduct(weights, correlatedReturns)
+						portfolioValue *= math.Exp(portfolioReturn)
+						pathValues[period+1] = portfolioValue
+					}
+
+					totalReturn := portfolioValue - 1.0
+					annualizedReturn := math.Pow(portfolioValue, 52.0/float64(numPeriods)) - 1.0
+
+					res[sim] = SimulationResult{
+						FinalValue:       portfolioValue,
+						TotalReturn:      totalReturn,
+						AnnualizedReturn: annualizedReturn,
+						PathValues:       pathValues,
+					}
+				}
+			}
+			done <- true
 		}
-	}
-	close(jobs) // close the job channel, there isnt anything else being added to it
 
-	// this will loop until all of the jobs are complete
-	for range Workers {
-		<-done
-	}
+		// starts the workers
+		for range Workers {
+			go worker()
+		}
 
-	//return results, nil
+		// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
+		for i := range nJobs {
+			start := i * BatchSize
+			end := int(math.Min(float64(start+BatchSize), float64(request.Iterations)))
+			if start != end {
+				jobs <- job{index: i, start: start, end: end}
+			}
+		}
+		close(jobs) // close the job channel, there isnt anything else being added to it
+
+		// this will loop until all of the jobs are complete
+		for range Workers {
+			<-done
+		}
+
+		//return results, nil
+	*/
 
 	return nil
 }
@@ -203,7 +174,7 @@ func generateCorrelatedReturns(L *mat.TriDense, means []float64, normalDist *dis
 	// add the asset mean returns
 	correlatedReturns := make([]float64, n)
 	for i := range n {
-		correlatedReturns[i] = yVec.AtVec(i) + means[i]
+		correlatedReturns[i] = yVec.AtVec(i) + means[i] // TODO: figure out annualization
 	}
 
 	return correlatedReturns
