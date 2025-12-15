@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"math/rand/v2"
 
 	"gonum.org/v1/gonum/mat"
@@ -16,74 +17,90 @@ const (
 	StudentT
 )
 
+const ( // idk if we need these depending on how front end gets and sends options.
+	Daily     = 252
+	Weekly    = 52
+	Monthly   = 12
+	Quarterly = 4
+	Yearly    = 1
+)
+
 type StatisticalResources struct {
-	CovMatrix         *mat.SymDense // covariance matrix for std normal dist
-	CorrMatrix        *mat.SymDense // correlation matrix for student t dist
-	CholeskyL         *mat.TriDense // cholesky of covariance (std normal dist)
-	CholeskyCorrL     *mat.TriDense // cholesky of correlation (student t dist)
-	MeanReturns       []float64
-	StandardDeviation []float64
-	DistType          int
-	Df                float64
+	CovMatrix     *mat.SymDense // covariance matrix for std normal dist
+	CorrMatrix    *mat.SymDense // correlation matrix for student t dist
+	CholeskyL     *mat.TriDense // cholesky of covariance (std normal dist)
+	CholeskyCorrL *mat.TriDense // cholesky of correlation (student t dist)
+	AssetWeight   []float64
+	Mu            []float64 // annualized
+	Sigma         []float64 // annualized
+	DistType      int
+	Df            int
 }
 
 // Used for parallelization, will have shared materials to minimize memory usage
-type WorkerResources struct {
+type WorkerResource struct {
 	*StatisticalResources           // embed read only shared data
 	rng                   *rand.PCG // worker-specific RNG
 }
 
 // Called in the go routine and have seeds respectively set for each
-func NewWorkerResources(shared *StatisticalResources, seed uint64) *WorkerResources {
+func NewWorkerResources(shared *StatisticalResources, seed, iterable uint64) *WorkerResource {
 	rng := new(rand.PCG)
 	if seed != 0 {
-		rng = rand.NewPCG(seed, 0)
+		rng = rand.NewPCG(seed, iterable)
 	}
 
-	return &WorkerResources{
+	return &WorkerResource{
 		StatisticalResources: shared,
 		rng:                  rng,
 	}
 }
 
-func GetStatisticalResources(returns [][]float64, distType int, df float64) (*StatisticalResources, error) {
+func GetStatisticalResources(request SimulationRequest, seriesReturns []SeriesReturns) (*StatisticalResources, error) {
 	var err error
 
-	sm := &StatisticalResources{
-		DistType: distType,
-		Df:       df,
+	sr := &StatisticalResources{
+		DistType: request.DistType,
+		Df:       request.DegreesOfFreedom,
 	}
 
-	sm.CovMatrix = GetCovarianceMatrix(returns)
-	sm.CholeskyL, err = GetCholeskyDecomposition(sm.CovMatrix)
+	returns := make([][]float64, len(seriesReturns))
+	for i, r := range seriesReturns {
+		returns[i] = r.Returns
+	}
+
+	sr.CovMatrix = GetCovarianceMatrix(returns)
+	sr.CholeskyL, err = GetCholeskyDecomposition(sr.CovMatrix)
 	if err != nil {
 		return nil, err
 	}
 
-	sm.MeanReturns = make([]float64, len(returns))
-	sm.StandardDeviation = make([]float64, len(returns))
-	for i := range returns {
-		sm.MeanReturns[i] = stat.Mean(returns[i], nil)
-		sm.StandardDeviation[i] = stat.StdDev(returns[i], nil)
+	sr.AssetWeight = make([]float64, len(returns))
+	sr.Mu = make([]float64, len(returns))
+	sr.Sigma = make([]float64, len(returns))
+	for i, r := range seriesReturns {
+		sr.AssetWeight[i] = r.Weight
+		sr.Mu[i] = stat.Mean(r.Returns, nil) * float64(r.AnnualizationFactor)
+		sr.Sigma[i] = stat.StdDev(r.Returns, nil) * math.Sqrt(float64(r.AnnualizationFactor))
 	}
 
-	if distType == StudentT {
-		sm.CorrMatrix = GetCorrelationMatrix(sm.CovMatrix, sm.StandardDeviation)
-		sm.CholeskyCorrL, err = GetCholeskyDecomposition(sm.CorrMatrix)
+	if request.DistType == StudentT {
+		sr.CorrMatrix = GetCorrelationMatrix(sr.CovMatrix, sr.Sigma)
+		sr.CholeskyCorrL, err = GetCholeskyDecomposition(sr.CorrMatrix)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute correlation Cholesky: %w", err)
 		}
 	}
 
-	return sm, nil
+	return sr, nil
 }
 
 // GetCorrelatedReturns generates one set of correlated returns
 // This is goroutine-safe as long as each goroutine has its own WorkerResources
-func (wr *WorkerResources) GetCorrelatedReturns() []float64 {
+func (wr *WorkerResource) GetCorrelatedReturns(simulationUnitOfTime int) []float64 {
 	switch wr.DistType {
 	case StandardNormal:
-		return wr.generateNormalReturns()
+		return wr.generateNormalReturns(simulationUnitOfTime)
 	case StudentT:
 		return wr.generateTReturns()
 	default:
@@ -91,10 +108,10 @@ func (wr *WorkerResources) GetCorrelatedReturns() []float64 {
 	}
 }
 
-// generateNormalReturns generates correlated normal returns
-func (wr *WorkerResources) generateNormalReturns() []float64 {
-	n := len(wr.MeanReturns)
-	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng}
+// generateNormalReturns generates a single period of correlated normal returns
+func (wr *WorkerResource) generateNormalReturns(simulationUnitOfTime int) []float64 {
+	n := len(wr.Mu)
+	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng} // the seed will iterate with the distribution
 
 	z := make([]float64, n)
 	for i := range n {
@@ -102,22 +119,23 @@ func (wr *WorkerResources) generateNormalReturns() []float64 {
 	}
 
 	zVec := mat.NewVecDense(n, z)
-	yVec := mat.NewVecDense(n, nil)
-	yVec.MulVec(wr.CholeskyL, zVec)
+	correlatedZ := mat.NewVecDense(n, nil)
+	correlatedZ.MulVec(wr.CholeskyL, zVec)
 
-	correlatedReturns := make([]float64, n) // TODO: update given understandings in test for annualization and drift
+	correlatedReturns := make([]float64, n)
 	for i := range n {
-		correlatedReturns[i] = yVec.AtVec(i) + wr.MeanReturns[i]
+		correlatedReturns[i] = CalculateLogNormalReturn(wr.Mu[i], wr.Sigma[i], correlatedZ.AtVec(i), simulationUnitOfTime)
 	}
 
 	return correlatedReturns
 }
 
 // generateTReturns generates correlated Student's t returns using Gaussian copula
-func (wr *WorkerResources) generateTReturns() []float64 {
-	n := len(wr.MeanReturns)
+// this is incomplete and needs to be verified
+func (wr *WorkerResource) generateTReturns() []float64 {
+	n := len(wr.Mu)
 	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng}
-	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: wr.Df, Src: wr.rng}
+	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(wr.Df), Src: wr.rng}
 
 	// generate correlated standard normals using correlation matrix
 	z := make([]float64, n)
@@ -133,17 +151,20 @@ func (wr *WorkerResources) generateTReturns() []float64 {
 	// https://colab.research.google.com/github/tensorflow/probability/blob/main/tensorflow_probability/examples/jupyter_notebooks/Gaussian_Copula.ipynb#scrollTo=1kSHqIp0GaRh
 	correlatedReturns := make([]float64, n)
 	for i := range n {
-		// Transform to uniform [0,1]
-		u := normalDist.CDF(correlatedZ.AtVec(i))
+		u := normalDist.CDF(correlatedZ.AtVec(i)) // transform to uniform [0,1]
+		tValue := tDist.Quantile(u)               // transform to t-distributed
 
-		// Transform to t-distributed
-		tValue := tDist.Quantile(u)
-
-		// Scale by individual sigma and add mean
-		correlatedReturns[i] = tValue*wr.StandardDeviation[i] + wr.MeanReturns[i]
+		// TODO: sigma and mu are annualized now, need to scale by time unit of simulation
+		// TODO: figure out if this needs the drift component
+		// TODO: change this with returns being log normal to align with z-std?
+		correlatedReturns[i] = tValue*wr.Sigma[i] + wr.Mu[i]
 	}
 
 	return correlatedReturns
+}
+
+func CalculateLogNormalReturn(mu, sigma, rng float64, annualizationFactor int) float64 {
+	return (mu-0.5*math.Pow(sigma, 2))/float64(annualizationFactor) + (sigma * rng / math.Sqrt(float64(annualizationFactor)))
 }
 
 func GetCovarianceMatrix[T ex.Number](data [][]T) *mat.SymDense {
@@ -201,4 +222,28 @@ func DotProduct[T ex.Number](a, b []T) (res T, err error) {
 	}
 
 	return
+}
+
+func Min[T ex.Number](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func convertFrequencyToString(inp int) string {
+	switch inp {
+	case Daily:
+		return "days"
+	case Weekly:
+		return "weeks"
+	case Monthly:
+		return "months"
+	case Quarterly:
+		return "quarters"
+	case Yearly:
+		return "years"
+	default:
+		panic(fmt.Sprintf("%v is not a recognized simulation frequency", inp))
+	}
 }

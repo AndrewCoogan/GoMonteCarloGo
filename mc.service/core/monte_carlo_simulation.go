@@ -2,14 +2,11 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"maps"
 	"math"
 	"slices"
 	"time"
-
-	"gonum.org/v1/gonum/mat"
-	"gonum.org/v1/gonum/stat"
-	"gonum.org/v1/gonum/stat/distuv"
 
 	ex "mc.data/extensions"
 )
@@ -26,21 +23,23 @@ type SimulationAllocation struct {
 }
 
 type SimulationRequest struct {
-	Allocations        []SimulationAllocation `json:"allocations"`
-	Iterations         int                    `json:"iterations"`
-	MaxLookback        time.Duration          `json:"maxlookback"`        // what is this going to look like in api req?
-	SimulationDuration time.Duration          `json:"simulationduration"` // ^^
-	Seed               int64                  `json:"seed"`               // ^^
+	Allocations []SimulationAllocation `json:"allocations"`
+	MaxLookback time.Duration          `json:"maxlookback"` // what is this going to look like in api req?
+
+	Iterations int   `json:"iterations"`
+	Seed       int64 `json:"seed"`     // ^^
+	DistType   int   `json:"disttype"` // standar normal, student t
+
+	SimulationUnitOfTime int `json:"simulationunitoftime"` // daily, weekly, monthly, quarterly, yearly
+	SimulationDuration   int `json:"simulationduration"`   // number of units of time to simulate
+	DegreesOfFreedom     int `json:"degreesoffreedom"`     // degrees of freedom for student t distribution
 }
 
 type SeriesReturns struct {
-	SourceID   int32
-	Ticker     string
-	Weight     float64
-	Returns    []float64
-	Dates      []time.Time
-	MeanReturn float64
-	StdDev     float64
+	SimulationAllocation
+	Returns             []float64
+	Dates               []time.Time
+	AnnualizationFactor int
 }
 
 type SimulationResult struct {
@@ -79,114 +78,98 @@ func (sr SimulationRequest) Validate() error {
 	return nil
 }
 
-func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request SimulationRequest) error {
-	/*
-		seriesReturns, err := sc.getSeriesReturns(request)
+func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request SimulationRequest) ([]*SimulationResult, error) {
+	res := make([]*SimulationResult, request.Iterations)
+	seriesReturns, err := sc.getSeriesReturns(request)
+	if err != nil {
+		return res, err
+	}
 
-		if err != nil {
-			return err
-		}
+	statisticalResources, err := GetStatisticalResources(request, seriesReturns)
+	if err != nil {
+		return res, err
+	}
 
-		returns := make([][]float64, len(seriesReturns))
-		for i, r := range seriesReturns {
-			j, wr := range r. {
+	nJobs := int(math.Ceil(float64(request.Iterations) / BatchSize / Workers))
+	if nJobs == 0 && request.Iterations > 0 {
+		nJobs = 1
+	}
 
-			}
-		}
+	log.Println("Starting monte carlo simulation:")
+	log.Printf("\t Simulation duration: %v %s", request.SimulationDuration, convertFrequencyToString(request.SimulationUnitOfTime))
+	log.Printf("\t Simulation paths: %v", request.Iterations)
+	log.Printf("\t Simulation batch size: %v", BatchSize)
+	log.Printf("\t Workers: %v", Workers)
 
-		sr := GetStatisticalResources()
+	workerCount := Min(nJobs, Workers)
+	workerResources := make([]*WorkerResource, workerCount)
+	for i := range workerCount {
+		workerResources[i] = NewWorkerResources(statisticalResources, uint64(request.Seed), uint64(i))
+	}
 
+	jobs := make(chan job, nJobs) // TODO: if njobs is less than workers, take the minimum
+	done := make(chan bool, Min(nJobs, Workers))
 
-		jobs := make(chan job, nJobs)
-		done := make(chan bool, Workers)
+	worker := func(wr *WorkerResource) {
+		for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
+			for sim := j.start; sim < j.end; sim++ { // this will loop over the iterations
+				portfolioValue := 100.0
+				pathValues := make([]float64, request.Iterations+1)
+				pathValues[0] = portfolioValue
 
-		numPeriods := int(math.Ceil(request.SimulationDuration.Hours() / (24 * 7)))
-
-		res := make([]SimulationResult, request.Iterations)
-
-		worker := func() {
-			for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
-				for sim := j.start; sim < j.end; sim++ {
-					portfolioValue := 100.0
-					pathValues := make([]float64, numPeriods+1)
-					pathValues[0] = portfolioValue
-
-					for period := range numPeriods {
-						correlatedReturns := generateCorrelatedReturns(&L, meanReturns, &dists[j.index])
-						portfolioReturn, _ := DotProduct(weights, correlatedReturns)
-						portfolioValue *= math.Exp(portfolioReturn)
-						pathValues[period+1] = portfolioValue
+				for period := range request.Iterations {
+					correlatedReturns := wr.GetCorrelatedReturns(request.SimulationUnitOfTime)
+					portfolioReturn, err := DotProduct(statisticalResources.AssetWeight, correlatedReturns)
+					if err != nil {
+						return // TODO: how to handle errors in channels?
 					}
 
-					totalReturn := portfolioValue - 1.0
-					annualizedReturn := math.Pow(portfolioValue, 52.0/float64(numPeriods)) - 1.0
+					portfolioValue *= math.Exp(portfolioReturn)
+					pathValues[period+1] = portfolioValue
+				}
 
-					res[sim] = SimulationResult{
-						FinalValue:       portfolioValue,
-						TotalReturn:      totalReturn,
-						AnnualizedReturn: annualizedReturn,
-						PathValues:       pathValues,
-					}
+				totalReturn := portfolioValue - 1.0
+				fullDurationAnnualizationFactor := float64(request.SimulationDuration) / float64(request.SimulationUnitOfTime)
+				annualizedReturn := math.Pow(portfolioValue, fullDurationAnnualizationFactor) - 1.0
+
+				res[sim] = &SimulationResult{
+					FinalValue:       portfolioValue,
+					TotalReturn:      totalReturn,
+					AnnualizedReturn: annualizedReturn,
+					PathValues:       pathValues,
 				}
 			}
-			done <- true
 		}
-
-		// starts the workers
-		for range Workers {
-			go worker()
-		}
-
-		// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
-		for i := range nJobs {
-			start := i * BatchSize
-			end := int(math.Min(float64(start+BatchSize), float64(request.Iterations)))
-			if start != end {
-				jobs <- job{index: i, start: start, end: end}
-			}
-		}
-		close(jobs) // close the job channel, there isnt anything else being added to it
-
-		// this will loop until all of the jobs are complete
-		for range Workers {
-			<-done
-		}
-
-		//return results, nil
-	*/
-
-	return nil
-}
-
-func generateCorrelatedReturns(L *mat.TriDense, means []float64, normalDist *distuv.Normal) []float64 {
-	n := len(means)
-
-	z := make([]float64, n)
-	for i := range n {
-		z[i] = normalDist.Rand()
+		done <- true
 	}
 
-	// transform to correlated returns: y = L * z + mean
-	zVec := mat.NewVecDense(n, z)
-	yVec := mat.NewVecDense(n, nil)
-	yVec.MulVec(L, zVec)
-
-	// add the asset mean returns
-	correlatedReturns := make([]float64, n)
-	for i := range n {
-		correlatedReturns[i] = yVec.AtVec(i) + means[i] // TODO: figure out annualization
+	// starts the workers
+	for i := range workerCount {
+		go worker(workerResources[i])
 	}
 
-	return correlatedReturns
+	// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
+	for i := range nJobs {
+		start := i * BatchSize
+		end := Min(start+BatchSize, request.Iterations)
+		if start != end {
+			jobs <- job{index: i, start: start, end: end}
+		}
+	}
+	close(jobs) // close the job channel, there isnt anything else being added to it
+
+	// this will loop until all of the jobs are complete
+	for range workerCount {
+		<-done
+	}
+
+	return res, nil
 }
 
 func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []SeriesReturns, err error) {
 	tickerLookup := make(map[int32]SimulationAllocation, len(request.Allocations))
 	for _, allocation := range request.Allocations {
-		tickerLookup[allocation.Id] = SimulationAllocation{
-			Ticker: allocation.Ticker,
-			Weight: allocation.Weight,
-		}
+		tickerLookup[allocation.Id] = allocation
 	}
 
 	returns, err := sc.PostgresConnection.GetTimeSeriesReturns(sc.Context, slices.Collect(maps.Keys(tickerLookup)), request.MaxLookback)
@@ -198,11 +181,10 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 	for _, ret := range returns {
 		if agg[ret.Id] == nil {
 			agg[ret.Id] = &SeriesReturns{
-				SourceID: ret.Id,
-				Ticker:   tickerLookup[ret.Id].Ticker,
-				Weight:   tickerLookup[ret.Id].Weight,
-				Returns:  []float64{},
-				Dates:    []time.Time{},
+				SimulationAllocation: tickerLookup[ret.Id],
+				Returns:              []float64{},
+				Dates:                []time.Time{},
+				AnnualizationFactor:  Weekly,
 			}
 		}
 
@@ -216,22 +198,14 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 
 	// sorts on source id for consistency, useful for testing
 	slices.SortFunc(res, func(i, j SeriesReturns) int {
-		return int(i.SourceID - j.SourceID)
+		return int(i.Id - j.Id)
 	})
 
-	for i, r := range res {
-		res[i].MeanReturn = stat.Mean(r.Returns, nil)
-		res[i].StdDev = stat.StdDev(r.Returns, nil)
-	}
-
-	if err = verifyDataIntegrity(res); err != nil {
-		return
-	}
-
+	err = verifySeriesReturnIntegrity(res)
 	return
 }
 
-func verifyDataIntegrity(data []SeriesReturns) error {
+func verifySeriesReturnIntegrity(data []SeriesReturns) error {
 	firstDates := make([]time.Time, len(data))
 	lastDates := make([]time.Time, len(data))
 	lengths := make([]int, len(data))
@@ -257,16 +231,20 @@ func verifyDataIntegrity(data []SeriesReturns) error {
 	return nil
 }
 
-func getTimeRange(data SeriesReturns) (first, last time.Time, length int) {
-	first = time.Date(3000, time.December, 31, 0, 0, 0, 0, time.UTC)
-	for _, v := range data.Dates {
-		if v.Before(first) {
-			first = v
-		}
-		if v.After(last) {
-			last = v
-		}
-		length++
+func getTimeRange(data SeriesReturns) (time.Time, time.Time, int) {
+	// i dont think we need to keep the dates in the same order... but i dont want to find out
+	dates := slices.Clone(data.Dates)
+	slices.SortFunc(dates, func(i, j time.Time) int {
+		return i.Compare(j)
+	})
+
+	first := dates[0]
+	length := len(dates)
+	last := dates[length-1]
+
+	if last.Before(first) {
+		log.Println("you dummy you missed the multipler in getTimeRange() sort compare")
 	}
-	return
+
+	return first, last, length
 }

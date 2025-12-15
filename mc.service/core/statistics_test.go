@@ -3,7 +3,9 @@ package core
 import (
 	"math"
 	"math/rand/v2"
+	"strings"
 	"testing"
+	"time"
 
 	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat"
@@ -97,36 +99,106 @@ func TestSupportingGenerators(t *testing.T) {
 	}
 }
 
-// TestBasicSetup verifies that SharedMatrices are created correctly
+// TestBasicSetup verifies that StatisticalResources are created correctly
 func TestBasicSetup(t *testing.T) {
 	nSamples := days_in_a_year * 100
-	returns := generateMockReturns(t, nSamples)
- 
-	shared, err := GetStatisticalResources(returns, StandardNormal, 0)
+
+	request := SimulationRequest{
+		DistType: StandardNormal,
+	}
+
+	returns := generateMockSeriesReturns(t, nSamples)
+	sr, err := GetStatisticalResources(request, returns)
 	if err != nil {
-		t.Fatalf("Failed to create SharedMatrices: %v", err)
+		t.Fatalf("Failed to create StatisticalResources: %v", err)
 	}
- 
-	if len(shared.MeanReturns) != 3 {
-		t.Errorf("Expected 3 assets, got %d", len(shared.MeanReturns))
+
+	if len(sr.Mu) != 3 {
+		t.Errorf("Expected 3 assets, got %d", len(sr.Mu))
 	}
- 
+
 	expectedMeans := []float64{mu_a, mu_b, mu_c}
 	for i, expected := range expectedMeans {
-		if math.Abs(shared.MeanReturns[i]-expected) > 0.02 {
-			t.Errorf("Asset %d: expected mean ~%.2f, got %.4f", i, expected, shared.MeanReturns[i])
+		if math.Abs(sr.Mu[i]-expected) > 0.02 {
+			t.Errorf("Asset %d: expected mean ~%.2f, got %.4f", i, expected, sr.Mu[i])
 		}
 	}
- 
+
 	expectedStds := []float64{sigma_a, sigma_b, sigma_c}
 	for i, expected := range expectedStds {
-		if math.Abs(shared.StandardDeviation[i]-expected) > 0.02 {
-			t.Errorf("Asset %d: expected std ~%.2f, got %.4f", i, expected, shared.StandardDeviation[i])
+		if math.Abs(sr.Sigma[i]-expected) > 0.02 {
+			t.Errorf("Asset %d: expected std ~%.2f, got %.4f", i, expected, sr.Sigma[i])
 		}
 	}
- }
- 
- 
+}
+
+// TestNormalDistributionReturns verifies normal distribution behavior
+func TestNormalDistributionReturns(t *testing.T) {
+	nSamples := days_in_a_year * 100
+
+	request := SimulationRequest{
+		DistType:         StudentT,
+		DegreesOfFreedom: 8,
+	}
+
+	returns := generateMockSeriesReturns(t, nSamples)
+	sr, err := GetStatisticalResources(request, returns)
+	if err != nil {
+		t.Fatalf("Failed to create StatisticalResources: %v", err)
+	}
+
+	worker := NewWorkerResources(sr, 42, 0)
+
+	nSims := 10000
+	allReturns := make([][]float64, nSims)
+
+	for i := range nSims {
+		allReturns[i] = worker.GetCorrelatedReturns(Daily)
+	}
+
+	// Check first asset statistics across all simulations
+	asset0Returns := make([]float64, nSims)
+	for i := range nSims {
+		asset0Returns[i] = allReturns[i][0]
+	}
+
+	simMean := stat.Mean(asset0Returns, nil)
+	simStd := stat.StdDev(asset0Returns, nil)
+
+	t.Logf("Asset 0 - Expected mean: %.4f, Simulated: %.4f", sr.Mu[0], simMean)
+	t.Logf("Asset 0 - Expected std: %.4f, Simulated: %.4f", sr.Sigma[0], simStd)
+
+	// Allow 5% tolerance for mean and std (Monte Carlo variation)
+	if math.Abs(simMean-sr.Mu[0]) > 0.01 {
+		t.Errorf("Mean differs too much: expected %.4f, got %.4f", sr.Mu[0], simMean)
+	}
+	if math.Abs(simStd-sr.Sigma[0]) > 0.02 {
+		t.Errorf("StdDev differs too much: expected %.4f, got %.4f", sr.Sigma[0], simStd)
+	}
+}
+
+// Helper: Generate mock series returns
+func generateMockSeriesReturns(t *testing.T, n int) []SeriesReturns {
+	t.Helper()
+
+	res := make([]SeriesReturns, n)
+	returns := generateMockReturns(t, n)
+
+	for i := range len(returns) {
+		res[i] = SeriesReturns{
+			SimulationAllocation: SimulationAllocation{
+				Id:     int32(i),
+				Ticker: strings.Repeat("T", i+1),
+				Weight: 1 / float64(len(returns)),
+			},
+			Returns:             returns[i],
+			Dates:               make([]time.Time, 0),
+			AnnualizationFactor: Daily,
+		}
+	}
+
+	return res
+}
 
 // Helper: Generate one year of mock daily historical returns
 func generateMockReturns(t *testing.T, n int) [][]float64 {
