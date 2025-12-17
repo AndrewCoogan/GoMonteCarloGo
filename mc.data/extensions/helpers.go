@@ -121,3 +121,29 @@ func FmtShort(t time.Time) string {
 func FmtLong(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
+
+func DotProduct[T Number](a, b []T) (res T, err error) {
+	if len(a) != len(b) {
+		return res, fmt.Errorf("error in dotproduct, lengths of vectors are not equal")
+	}
+
+	for i, v := range a {
+		res += v * b[i]
+	}
+
+	return
+}
+
+func Min[T Number](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func Sum[T Number](inp []T) (res T) {
+	for _, v := range inp {
+		res += v
+	}
+	return
+}

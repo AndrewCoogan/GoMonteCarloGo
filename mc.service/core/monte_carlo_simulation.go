@@ -101,14 +101,14 @@ func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request Simula
 	log.Printf("\t Simulation batch size: %v", BatchSize)
 	log.Printf("\t Workers: %v", Workers)
 
-	workerCount := Min(nJobs, Workers)
+	workerCount := ex.Min(nJobs, Workers)
 	workerResources := make([]*WorkerResource, workerCount)
 	for i := range workerCount {
 		workerResources[i] = NewWorkerResources(statisticalResources, uint64(request.Seed), uint64(i))
 	}
 
 	jobs := make(chan job, nJobs) // TODO: if njobs is less than workers, take the minimum
-	done := make(chan bool, Min(nJobs, Workers))
+	done := make(chan bool, ex.Min(nJobs, Workers))
 
 	worker := func(wr *WorkerResource) {
 		for j := range jobs { // this will loop over available jobs, and will reup if a job finishes and there are more jobs
@@ -119,7 +119,7 @@ func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request Simula
 
 				for period := range request.Iterations {
 					correlatedReturns := wr.GetCorrelatedReturns(request.SimulationUnitOfTime)
-					portfolioReturn, err := DotProduct(statisticalResources.AssetWeight, correlatedReturns)
+					portfolioReturn, err := ex.DotProduct(statisticalResources.AssetWeight, correlatedReturns)
 					if err != nil {
 						return // TODO: how to handle errors in channels?
 					}
@@ -151,7 +151,7 @@ func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request Simula
 	// allocate the jobs and the respective dist index, start and end iteration indicies for result allocation
 	for i := range nJobs {
 		start := i * BatchSize
-		end := Min(start+BatchSize, request.Iterations)
+		end := ex.Min(start+BatchSize, request.Iterations)
 		if start != end {
 			jobs <- job{index: i, start: start, end: end}
 		}
@@ -166,7 +166,7 @@ func (sc *ServiceContext) RunEquityMonteCarloWithCovarianceMartix(request Simula
 	return res, nil
 }
 
-func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []SeriesReturns, err error) {
+func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []*SeriesReturns, err error) {
 	tickerLookup := make(map[int32]SimulationAllocation, len(request.Allocations))
 	for _, allocation := range request.Allocations {
 		tickerLookup[allocation.Id] = allocation
@@ -193,11 +193,11 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 	}
 
 	for _, tickerAgg := range agg {
-		res = append(res, *tickerAgg)
+		res = append(res, tickerAgg)
 	}
 
 	// sorts on source id for consistency, useful for testing
-	slices.SortFunc(res, func(i, j SeriesReturns) int {
+	slices.SortFunc(res, func(i, j *SeriesReturns) int {
 		return int(i.Id - j.Id)
 	})
 
@@ -205,7 +205,7 @@ func (sc *ServiceContext) getSeriesReturns(request SimulationRequest) (res []Ser
 	return
 }
 
-func verifySeriesReturnIntegrity(data []SeriesReturns) error {
+func verifySeriesReturnIntegrity(data []*SeriesReturns) error {
 	firstDates := make([]time.Time, len(data))
 	lastDates := make([]time.Time, len(data))
 	lengths := make([]int, len(data))
@@ -231,7 +231,7 @@ func verifySeriesReturnIntegrity(data []SeriesReturns) error {
 	return nil
 }
 
-func getTimeRange(data SeriesReturns) (time.Time, time.Time, int) {
+func getTimeRange(data *SeriesReturns) (time.Time, time.Time, int) {
 	// i dont think we need to keep the dates in the same order... but i dont want to find out
 	dates := slices.Clone(data.Dates)
 	slices.SortFunc(dates, func(i, j time.Time) int {

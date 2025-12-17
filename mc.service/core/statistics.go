@@ -56,7 +56,7 @@ func NewWorkerResources(shared *StatisticalResources, seed, iterable uint64) *Wo
 	}
 }
 
-func GetStatisticalResources(request SimulationRequest, seriesReturns []SeriesReturns) (*StatisticalResources, error) {
+func GetStatisticalResources(request SimulationRequest, seriesReturns []*SeriesReturns) (*StatisticalResources, error) {
 	var err error
 
 	sr := &StatisticalResources{
@@ -102,7 +102,7 @@ func (wr *WorkerResource) GetCorrelatedReturns(simulationUnitOfTime int) []float
 	case StandardNormal:
 		return wr.generateNormalReturns(simulationUnitOfTime)
 	case StudentT:
-		return wr.generateTReturns()
+		return wr.generateTReturns(simulationUnitOfTime)
 	default:
 		return nil
 	}
@@ -131,8 +131,7 @@ func (wr *WorkerResource) generateNormalReturns(simulationUnitOfTime int) []floa
 }
 
 // generateTReturns generates correlated Student's t returns using Gaussian copula
-// this is incomplete and needs to be verified
-func (wr *WorkerResource) generateTReturns() []float64 {
+func (wr *WorkerResource) generateTReturns(simulationUnitOfTime int) []float64 {
 	n := len(wr.Mu)
 	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng}
 	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(wr.Df), Src: wr.rng}
@@ -153,11 +152,7 @@ func (wr *WorkerResource) generateTReturns() []float64 {
 	for i := range n {
 		u := normalDist.CDF(correlatedZ.AtVec(i)) // transform to uniform [0,1]
 		tValue := tDist.Quantile(u)               // transform to t-distributed
-
-		// TODO: sigma and mu are annualized now, need to scale by time unit of simulation
-		// TODO: figure out if this needs the drift component
-		// TODO: change this with returns being log normal to align with z-std?
-		correlatedReturns[i] = tValue*wr.Sigma[i] + wr.Mu[i]
+		correlatedReturns[i] = CalculateLogNormalReturn(wr.Mu[i], wr.Sigma[i], tValue, simulationUnitOfTime)
 	}
 
 	return correlatedReturns
@@ -210,25 +205,6 @@ func ArrToMatrix[T ex.Number](data [][]T) *mat.Dense {
 		}
 	}
 	return res
-}
-
-func DotProduct[T ex.Number](a, b []T) (res T, err error) {
-	if len(a) != len(b) {
-		return res, fmt.Errorf("error in dotproduct, lengths of vectors are not equal")
-	}
-
-	for i, v := range a {
-		res += v * b[i]
-	}
-
-	return
-}
-
-func Min[T ex.Number](a, b T) T {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func convertFrequencyToString(inp int) string {
