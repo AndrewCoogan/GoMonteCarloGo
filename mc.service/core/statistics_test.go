@@ -98,14 +98,11 @@ func TestSupportingGenerators(t *testing.T) {
 	}
 }
 
-// TestBasicSetup verifies that StatisticalResources are created correctly
-func TestBasicSetup(t *testing.T) {
+// TestStatisticalResourcesCalculations verifies that StatisticalResources are created correctly
+func TestStatisticalResourcesCalculations(t *testing.T) {
 	nSamples := Daily * 500
 	returns := generateMockSeriesReturns(t, nSamples)
-
-	request := SimulationRequest{
-		DistType: StandardNormal,
-	}
+	request := SimulationRequest{DistType: StandardNormal}
 
 	sr, err := GetStatisticalResources(request, returns)
 	if err != nil {
@@ -152,13 +149,10 @@ func TestBasicSetup(t *testing.T) {
 }
 
 // TestNormalDistributionReturns verifies normal distribution behavior
-func TestNormalDistributionReturns(t *testing.T) {
+func TestStatisticalResourcesWorkerCorrelatedReturnsForStandardNormal(t *testing.T) {
 	nSamples := Daily * 500
 	returns := generateMockSeriesReturns(t, nSamples)
-
-	request := SimulationRequest{
-		DistType: StandardNormal,
-	}
+	request := SimulationRequest{DistType: StandardNormal}
 
 	sr, err := GetStatisticalResources(request, returns)
 	if err != nil {
@@ -167,32 +161,51 @@ func TestNormalDistributionReturns(t *testing.T) {
 
 	worker := NewWorkerResources(sr, 42, 0)
 
-	nSims := 10000
-	allReturns := make([][]float64, nSims)
-
-	for i := range nSims {
+	allReturns := make([][]float64, nSamples)
+	for i := range nSamples {
 		allReturns[i] = worker.GetCorrelatedReturns(Daily)
 	}
 
-	// Check first asset statistics across all simulations
-	asset0Returns := make([]float64, nSims)
-	for i := range nSims {
-		asset0Returns[i] = allReturns[i][0]
+	asset_a_returns := make([]float64, nSamples)
+	for i := range nSamples {
+		asset_a_returns[i] = allReturns[i][0]
 	}
 
-	simMean := stat.Mean(asset0Returns, nil)
-	simStd := stat.StdDev(asset0Returns, nil)
+	asset_a_mu := stat.Mean(asset_a_returns, nil)
+	asset_a_sigma := stat.StdDev(asset_a_returns, nil)
 
-	t.Logf("Asset 0 - Expected mean: %.4f, Simulated: %.4f", sr.Mu[0], simMean)
-	t.Logf("Asset 0 - Expected std: %.4f, Simulated: %.4f", sr.Sigma[0], simStd)
+	t.Logf("Asset 0 - Expected mean: %.4f, Simulated: %.4f", sr.Mu[0], asset_a_mu)
+	t.Logf("Asset 0 - Expected std: %.4f, Simulated: %.4f", sr.Sigma[0], asset_a_sigma)
 
 	// Allow 5% tolerance for mean and std (Monte Carlo variation)
-	if math.Abs(simMean-sr.Mu[0]) > 0.01 {
-		t.Errorf("Mean differs too much: expected %.4f, got %.4f", sr.Mu[0], simMean)
+	if math.Abs(asset_a_mu-sr.Mu[0]) > 0.01 {
+		t.Errorf("Mean differs too much: expected %.4f, got %.4f", sr.Mu[0], asset_a_mu)
 	}
-	if math.Abs(simStd-sr.Sigma[0]) > 0.02 {
-		t.Errorf("StdDev differs too much: expected %.4f, got %.4f", sr.Sigma[0], simStd)
+	if math.Abs(asset_a_sigma-sr.Sigma[0]) > 0.02 {
+		t.Errorf("StdDev differs too much: expected %.4f, got %.4f", sr.Sigma[0], asset_a_sigma)
 	}
+}
+
+func TestStatisticalResourcesWorkerCorrelatedReturnsForStudentT(t *testing.T) {
+	nSamples := Daily * 500
+	returns := generateMockSeriesReturns(t, nSamples)
+
+	request_normal := SimulationRequest{DistType: StandardNormal}
+	sr_normal, _ := GetStatisticalResources(request_normal, returns)
+	worker_normal := NewWorkerResources(sr_normal, 42, 0)
+
+	request_student_t := SimulationRequest{DistType: StudentT, DegreesOfFreedom: 5}
+	sr_student_t, _ := GetStatisticalResources(request_student_t, returns)
+	worker_student_t := NewWorkerResources(sr_student_t, 42, 1)
+
+	normalReturns := make([]float64, nSamples)
+	tReturns := make([]float64, nSamples)
+	for i := range nSamples {
+		normalReturns[i] = worker_normal.GetCorrelatedReturns(Daily)[0]
+		tReturns[i] = worker_student_t.GetCorrelatedReturns(Daily)[0]
+	}
+
+	
 }
 
 // Helper: Generate mock series returns

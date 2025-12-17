@@ -111,16 +111,8 @@ func (wr *WorkerResource) GetCorrelatedReturns(simulationUnitOfTime int) []float
 // generateNormalReturns generates a single period of correlated normal returns
 func (wr *WorkerResource) generateNormalReturns(simulationUnitOfTime int) []float64 {
 	n := len(wr.Mu)
-	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng} // the seed will iterate with the distribution
-
-	z := make([]float64, n)
-	for i := range n {
-		z[i] = normalDist.Rand()
-	}
-
-	zVec := mat.NewVecDense(n, z)
-	correlatedZ := mat.NewVecDense(n, nil)
-	correlatedZ.MulVec(wr.CholeskyL, zVec)
+	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng} // the seed itself will iterate with each call
+	correlatedZ := generateCorrelatedRandomVector(n, normalDist, wr.CholeskyL)
 
 	correlatedReturns := make([]float64, n)
 	for i := range n {
@@ -133,18 +125,9 @@ func (wr *WorkerResource) generateNormalReturns(simulationUnitOfTime int) []floa
 // generateTReturns generates correlated Student's t returns using Gaussian copula
 func (wr *WorkerResource) generateTReturns(simulationUnitOfTime int) []float64 {
 	n := len(wr.Mu)
-	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng}
-	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(wr.Df), Src: wr.rng}
-
-	// generate correlated standard normals using correlation matrix
-	z := make([]float64, n)
-	for i := range n {
-		z[i] = normalDist.Rand()
-	}
-
-	zVec := mat.NewVecDense(n, z)
-	correlatedZ := mat.NewVecDense(n, nil)
-	correlatedZ.MulVec(wr.CholeskyCorrL, zVec) // correlated z = chol corr * rng variables
+	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng} // the seed itself will iterate with each call
+	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(wr.Df), Src: wr.rng} // the seed itself will iterate with each call
+	correlatedZ := generateCorrelatedRandomVector(n, normalDist, wr.CholeskyCorrL)
 
 	// gaussian copula transformation
 	// https://colab.research.google.com/github/tensorflow/probability/blob/main/tensorflow_probability/examples/jupyter_notebooks/Gaussian_Copula.ipynb#scrollTo=1kSHqIp0GaRh
@@ -156,6 +139,20 @@ func (wr *WorkerResource) generateTReturns(simulationUnitOfTime int) []float64 {
 	}
 
 	return correlatedReturns
+}
+
+func generateCorrelatedRandomVector(n int, dist distuv.Normal, L *mat.TriDense) *mat.VecDense {
+	z := make([]float64, n)
+	for i := range n {
+		z[i] = dist.Rand()
+	}
+
+	// L can be either correlated or covariance depending on the distribution
+	zVec := mat.NewVecDense(n, z)
+	correlatedZ := mat.NewVecDense(n, nil)
+	correlatedZ.MulVec(L, zVec) // correlated z = chol L * rng variables
+
+	return correlatedZ
 }
 
 func CalculateLogNormalReturn(mu, sigma, rng float64, annualizationFactor int) float64 {
