@@ -1,5 +1,7 @@
 # GoMonteCarloGo
 
+The purpose of this project was to learn Golang, relearn one of my favorite academic topics, Monte Carlo Simulations, build a Postgresql database from scratch, and design a front end system. It's probably not great code--It's probably the equivalent of "a face a mother can only love," but that's my cross to bear. The structure is loosely set up how I do manage .NET applications professionally, not necessarily how I've seen other Golang based repos. Keeping that constant helped me think through the architecture, but understand I will eventually need to get over long singular files.
+
 To run service:
     cd mc.service
     # create a .env file based on env.example

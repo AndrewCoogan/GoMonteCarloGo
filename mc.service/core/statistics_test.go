@@ -204,7 +204,7 @@ func TestStatisticalResourcesWorkerCorrelatedReturnsForStudentT(t *testing.T) {
 		normalReturns[i] = worker_normal.GetCorrelatedReturns(Daily)[0]
 		tReturns[i] = worker_student_t.GetCorrelatedReturns(Daily)[0]
 	}
-
+	
 	
 }
 
