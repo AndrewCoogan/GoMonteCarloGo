@@ -204,8 +204,8 @@ func TestStatisticalResourcesWorkerCorrelatedReturnsForStudentT(t *testing.T) {
 		normalReturns[i] = worker_normal.GetCorrelatedReturns(Daily)[0]
 		tReturns[i] = worker_student_t.GetCorrelatedReturns(Daily)[0]
 	}
-	
-	
+
+	// TODO: need to finish this at some point, but am going to work on the controller and front end to get some tangible results
 }
 
 // Helper: Generate mock series returns

@@ -125,7 +125,7 @@ func (wr *WorkerResource) generateNormalReturns(simulationUnitOfTime int) []floa
 // generateTReturns generates correlated Student's t returns using Gaussian copula
 func (wr *WorkerResource) generateTReturns(simulationUnitOfTime int) []float64 {
 	n := len(wr.Mu)
-	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng} // the seed itself will iterate with each call
+	normalDist := distuv.Normal{Mu: 0, Sigma: 1, Src: wr.rng}                   // the seed itself will iterate with each call
 	tDist := distuv.StudentsT{Mu: 0, Sigma: 1, Nu: float64(wr.Df), Src: wr.rng} // the seed itself will iterate with each call
 	correlatedZ := generateCorrelatedRandomVector(n, normalDist, wr.CholeskyCorrL)
 

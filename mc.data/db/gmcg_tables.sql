@@ -42,7 +42,33 @@ CREATE TABLE IF NOT EXISTS av_time_series_data (
     CONSTRAINT uq_source_timestamp UNIQUE (source_id, timestamp),
     CONSTRAINT fk_time_series_data_metadata FOREIGN KEY (source_id)
         REFERENCES av_time_series_metadata(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE -- what does CASCADE do? 
 );
 
 CREATE INDEX IF NOT EXISTS idx_time_series_source_timestamp ON av_time_series_data(source_id, timestamp DESC);
+
+-- create table to store scenario meta data
+CREATE TABLE IF NOT EXISTS scenario_configuration (
+    id SERIAL PRIMARY KEY,
+    "name" VARCHAR(100) NOT NULL,
+    floated_weight BIT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- create table to store scenario components
+CREATE TABLE IF NOT EXISTS scenario_configuration_component (
+    id SERIAL PRIMARY KEY,
+    configuration_id INTEGER NOT NULL,
+    asset_id INTEGER NOT NULL,
+    "weight" NUMERIC(8, 6) NOT NULL, -- is this the proper precision?
+
+    CONSTRAINT uq_scenario_configuration_component UNIQUE (configuration_id, asset_id),
+    
+    CONSTRAINT fk_scenario_configuration FOREIGN KEY (configuration_id)
+        REFERENCES scenario_configuration_component(id),
+
+    CONSTRAINT fk_av_time_series_metadata FOREIGN KEY (asset_id)
+        REFERENCES scenario_configuration_component(id)
+);
